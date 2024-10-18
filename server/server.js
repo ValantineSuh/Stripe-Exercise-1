@@ -1,13 +1,13 @@
 const express = require("express");
 const app = express();
 const { resolve } = require("path");
-// Replace if using a different env file or config
-const env = require("dotenv").config({ path: "./.env" });
+require("dotenv").config({ path: "./.env" });
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2022-08-01",
 });
 
+app.use(express.json());
 app.use(express.static(process.env.STATIC_DIR));
 
 app.get("/", (req, res) => {
@@ -23,22 +23,30 @@ app.get("/config", (req, res) => {
 
 app.post("/create-payment-intent", async (req, res) => {
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      currency: "EUR",
-      amount: 1999,
-      automatic_payment_methods: { enabled: true },
+    const customer = await stripe.customers.create({
+      name: "Jenny Rosen",
+      email: "jennyrosen@example.com",
     });
 
-    // Send publishable key and PaymentIntent details to client
+    const paymentIntent = await stripe.paymentIntents.create({
+      customer: customer.id,
+      currency: "EUR",
+      amount: 1999,
+      // setup_future_usage: "off_session",
+      payment_method_types: ["card"],
+      // capture_method: "manual",
+    });
+
+    // const refund = await stripe.refunds.create({
+    //   payment_intent: 'pi_3QBHpAHcq0BpKt6r1p6FjD87',
+    //   amount: 1000,
+    // });
+
     res.send({
       clientSecret: paymentIntent.client_secret,
     });
   } catch (e) {
-    return res.status(400).send({
-      error: {
-        message: e.message,
-      },
-    });
+    res.status(400).send({ error: { message: e.message } });
   }
 });
 
