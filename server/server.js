@@ -3,6 +3,7 @@ const app = express();
 const { resolve } = require("path");
 require("dotenv").config({ path: "./.env" });
 
+const { v4: uuidv4 } = require('uuid');
 const crypto = require("crypto");  // For generating unique idempotency keys
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY, {
