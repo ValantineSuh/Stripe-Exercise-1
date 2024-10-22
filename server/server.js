@@ -3,10 +3,10 @@ const app = express();
 const { resolve } = require("path");
 require("dotenv").config({ path: "./.env" });
 
-const { v4: uuidv4 } = require('uuid');
+const crypto = require("crypto");  // For generating unique idempotency keys
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2022-08-01",
+  apiVersion: "2024-04-10",
 });
 
 app.use(express.json());
@@ -49,41 +49,87 @@ app.get("/balance-history", async (req, res) => {
   }
 });
 
+// app.post("/create-payment-intent", async (req, res) => {
+//   try {
+//     const customer = await stripe.customers.create({
+//       name: "Jenny Rosen",
+//       email: "jennyrosen@example.com",
+//     });
+
+//     // Generate a unique idempotency key
+//     const idempotencyKey = uuidv4();
+//     console.log("Generated Idempotency Key:", idempotencyKey); // Log the key
+
+//     const paymentIntent = await stripe.paymentIntents.create({
+//       customer: customer.id,
+//       currency: "EUR",
+//       amount: 1999,
+//       // setup_future_usage: "off_session",
+//       // automatic_payment_methods: { enabled: true },
+//       payment_method_types: ["card"],
+//       // capture_method: "manual",
+//       metadata: {
+//         order_id: '77',
+//       },
+//     }, {
+//       idempotencyKey: idempotencyKey,  // Pass the idempotency key here
+//     });
+
+//     // const refund = await stripe.refunds.create({
+//     //   payment_intent: 'pi_3QBHpAHcq0BpKt6r1p6FjD87',
+//     //   amount: 1000,
+//     // });
+
+//     res.send({
+//       clientSecret: paymentIntent.client_secret,
+//     });
+//   } catch (e) {
+//     res.status(400).send({ error: { message: e.message } });
+//   }
+// });
+
+const idempotencyKeysUsed = new Set(); // Store used keys
+
 app.post("/create-payment-intent", async (req, res) => {
   try {
-    const customer = await stripe.customers.create({
-      name: "Jenny Rosen",
-      email: "jennyrosen@example.com",
-    });
+    // Use the idempotency key provided in the request header or generate a new one
+    const idempotencyKey = req.headers["idempotency-key"] || crypto.randomBytes(16).toString("hex");
 
-    // Generate a unique idempotency key
-    const idempotencyKey = uuidv4();
-    console.log("Generated Idempotency Key:", idempotencyKey); // Log the key
+    // Log and check if the key has already been used
+    if (idempotencyKeysUsed.has(idempotencyKey)) {
+      console.log("Reused Idempotency Key:", idempotencyKey);
+    } else {
+      console.log("New Idempotency Key:", idempotencyKey);
+      idempotencyKeysUsed.add(idempotencyKey); // Add the new key to the set
+    }
 
-    const paymentIntent = await stripe.paymentIntents.create({
-      customer: customer.id,
-      currency: "EUR",
-      amount: 1999,
-      // setup_future_usage: "off_session",
-      // automatic_payment_methods: { enabled: true },
-      payment_method_types: ["card"],
-      // capture_method: "manual",
-      metadata: {
-        order_id: '77',
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        currency: "USD",
+        amount: 1999,
+        automatic_payment_methods: { enabled: true },
+        expand: ["charges.data.balance_transaction"],
       },
-    }, {
-      idempotencyKey: idempotencyKey,  // Pass the idempotency key here
-    });
+      {
+        idempotencyKey: idempotencyKey, // Use the idempotency key here
+      }
+    );
 
-    // const refund = await stripe.refunds.create({
-    //   payment_intent: 'pi_3QBHpAHcq0BpKt6r1p6FjD87',
-    //   amount: 1000,
-    // });
+    console.log("Created PaymentIntent:", paymentIntent); // Log the PaymentIntent
 
+    if (paymentIntent.charges.data.length > 0) {
+      console.log("Funds will be available on:", paymentIntent.charges.data[0].balance_transaction.available_on);
+    } else {
+      console.log("No charges were created for this PaymentIntent.");
+    }
+
+    // Send clientSecret and idempotencyKey to the client
     res.send({
       clientSecret: paymentIntent.client_secret,
+      idempotencyKey: idempotencyKey,
     });
   } catch (e) {
+    console.error("Error creating payment intent:", e);
     res.status(400).send({ error: { message: e.message } });
   }
 });
